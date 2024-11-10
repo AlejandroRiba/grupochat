@@ -34,7 +34,10 @@ public class ChatClient extends Thread{
         this.formulario = formulario; // Asigna el formulario al campo
         this.socket = new MulticastSocket(PORT);
         this.group = InetAddress.getByName(ADDR);
-        socket.joinGroup(group);
+        SocketAddress mcastAddr = new InetSocketAddress(group, PORT);
+        // Especifica la interfaz
+        NetworkInterface netIf = NetworkInterface.getByName("wlan3");
+        socket.joinGroup(mcastAddr, netIf);
     }
 
     //Método para recibir la lista de usuarios activos
@@ -53,7 +56,6 @@ public class ChatClient extends Thread{
             long tiempoTranscurrido = System.currentTimeMillis() - tiempoInicio;
             if (tiempoTranscurrido > tiempoEsperaMaximo) {
                 System.out.println("Tiempo de espera excedido. No se recibió respuesta.");
-                status = false;
                 break;
             }
 
@@ -63,7 +65,6 @@ public class ChatClient extends Thread{
             } catch (SocketTimeoutException e) {
                 // Se produce si el socket no recibe respuesta en el tiempo especificado
                 System.out.println("Timeout: No se recibió respuesta en el tiempo especificado.");
-                status = false;
                 break;
             }
 
@@ -151,10 +152,12 @@ public class ChatClient extends Thread{
                         if (opcion == JOptionPane.YES_OPTION) {
                             // Si el usuario elige "Sí", cerrar la aplicación
                             cliente.eliminarUsuarioDeSesion(cliente.usuario_actual);
+                            // Cerrar la ventana de inmediato
+                            formulario.dispose(); // Esto cierra la ventana
 
                             // Pausa de 2 segundos antes de cerrar la aplicación
                             try {
-                                Thread.sleep(1000);  // 2 segundos de espera
+                                Thread.sleep(1000);  // 1 segundo de espera
                             } catch (InterruptedException e1) {
                                 e1.printStackTrace();
                             }
@@ -175,8 +178,16 @@ public class ChatClient extends Thread{
 
     private void enviarUsuario(String nombre, String direccion, String tipo) {
         JSONObject mensaje = new JSONObject();
+        String contenido;
+        mensaje.put("public", "all");
         mensaje.put("tipo", tipo); //Declaramos la variable tipo para indicar al recibidor si lo va a quitar o lo va a agregar
         mensaje.put("usr", username);
+        if("inicio".equals(tipo)){
+            contenido = "Has joined the chat.";
+        }else{
+            contenido = "Has left the room.";
+        }
+        mensaje.put("content", contenido);
 
         // Crear el objeto JSON para el usuario
         JSONObject usuarioJson = new JSONObject();
@@ -244,7 +255,7 @@ public class ChatClient extends Thread{
     }
 
     // Método para comprobar si existe el usuario o no
-    private boolean existeUsuario(String nombre) throws IOException {
+    private boolean existeUsuario(String nombre) {
         for (Usuario usuario : usuarios) {
             System.out.println("Probando si ya existe - Usuario: " + usuario.getNombre());
             if (usuario.getNombre().equals(nombre)) {
@@ -266,74 +277,68 @@ public class ChatClient extends Thread{
                 String mensajeRecibido = new String(packet.getData(), 0, packet.getLength()).trim();
                 JSONObject jsonMensaje = new JSONObject(mensajeRecibido);
 
-                String tipo = jsonMensaje.getString("tipo");
-                String solicitante = jsonMensaje.getString("usr");
-                if ("activos".equals(tipo) && username != null) { //es un solicitante diferente
-                    System.out.println("Mensaje recibido: " + jsonMensaje);
-                    this.enviarListaUsuarios();
-                }else if("inicio".equals(tipo)){
-                    // Extraer el usuario del mensaje para eliminarlo
-                    System.out.println("Mensaje recibido: " + jsonMensaje);
-                    JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
-                    agregarUsuario(usuarioJson);
-                    SwingUtilities.invokeLater(() -> {
-                        // Actualiza el área de chat en el formulario
-                        formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                    });
-                } else if ("salida".equals(tipo) && !username.equals(solicitante)) { //es un solicitante diferente
-                    // Extraer el usuario del mensaje para eliminarlo
-                    System.out.println("Mensaje recibido: " + jsonMensaje);
-                    JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
-                    eliminarUsuario(usuarioJson);
-                    SwingUtilities.invokeLater(() -> {
-                        // Actualiza el área de chat en el formulario
-                        formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                    });
-                } else if ("message".equals(tipo)){
-                    // Extraer el contenido
-                    String contenido = jsonMensaje.getString("content");
-                    System.out.println("Mensaje recibido: " + contenido);
-                    // Actualiza la interfaz gráfica con el mensaje recibido
-                    SwingUtilities.invokeLater(() -> {
-                        // Actualiza el área de chat en el formulario
-                        String sender = solicitante + " says: ";
-                        if(solicitante.equals(username)){
-                            sender = "You say:";
-                        }
-                        formulario.actualizarChat(sender, contenido); // Llama al método para agregar el mensaje en el área de chat
-                    });
-                } else if ("emoji".equals(tipo)) {
-                    // Extraer el contenido
-                    String contenido = jsonMensaje.getString("content");
-                    System.out.println("Mensaje recibido: " + contenido);
-                    // Actualiza la interfaz gráfica con el mensaje recibido
-                    SwingUtilities.invokeLater(() -> {
-                        // Actualiza el área de chat en el formulario
-                        String sender = solicitante + " says: ";
-                        if(solicitante.equals(username)){
-                            sender = "You say:";
-                        }
-                        formulario.actualizarChatEmoji(sender, contenido); // Llama al método para agregar el mensaje en el área de chat
-                    });
-                }else if ("private_message".equals(tipo)) {
-                    // Extraer el contenido
-                    String remitente = jsonMensaje.getString("recipient");
-                    if(remitente.equals(username) || solicitante.equals(username)){//si el mensaje es para el user actual o para el que lo mando
-                        String contenido = jsonMensaje.getString("content");
-                        System.out.println("Mensaje recibido: " + contenido);
+                String tipo = jsonMensaje.optString("tipo", ""); // tipo de mensaje
+                String publico = jsonMensaje.optString("public", ""); // para quien va dirigido
+                String solicitante = jsonMensaje.optString("usr", ""); // quien lo manda
+                String contenido = jsonMensaje.optString("content", ""); // Extraer el contenido
+                String remitente = jsonMensaje.optString("recipient", ""); // el remitente si existe
+                String sender; //Para la interfaz gráfica
+                if("all".equals(publico)){
+                     if(solicitante.equals(username)){
+                        sender = "You say: ";
+                     } else {
+                        sender = solicitante + " says: ";
+                     }
+                     System.out.println("Mensaje recibido: " + jsonMensaje);
+                     if ("activos".equals(tipo) && username != null) { //es un solicitante diferente
+                         this.enviarListaUsuarios();
+                     } else if("inicio".equals(tipo)){
+                        // Extraer el usuario del mensaje para agregar a la lista
+                        JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
+                        agregarUsuario(usuarioJson);
+                        SwingUtilities.invokeLater(() -> {
+                            // Actualiza el área de chat en el formulario
+                            formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
+                            formulario.actualizarChat(solicitante, contenido, publico, "message");
+                        });
+                    } else if ("salida".equals(tipo) && !username.equals(solicitante)) { //es un solicitante diferente
+                        JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
+                        eliminarUsuario(usuarioJson);
+                        SwingUtilities.invokeLater(() -> {
+                            // Actualiza el área de chat en el formulario
+                            formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
+                            formulario.actualizarChat(solicitante, contenido, publico, "message");
+                        });
+                    } else if ("message".equals(tipo) || "emoji".equals(tipo)){
                         // Actualiza la interfaz gráfica con el mensaje recibido
                         SwingUtilities.invokeLater(() -> {
                             // Actualiza el área de chat en el formulario
-                            String sender = solicitante + " says to "+ remitente +":";
-                            if(solicitante.equals(username)){
-                                sender = "You say to "+ remitente +":";
-                            }
-                            formulario.actualizarPrivado(sender, contenido); // Llama al método para agregar el mensaje en el área de chat
+                            formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
+                        });
+                    }
+                } else if ("private".equals(publico) && (remitente.equals(username) || solicitante.equals(username))) { //si el mensaje es para el user actual o para el que lo mando
+                    if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
+                        if (remitente.equals(username)) {  //el que recibe
+                            sender = "You say privately\n to you: ";
+                        } else {
+                            sender = "You say privately\n to " + remitente + " : "; //el que recibe es alguien más
+                        }
+                    }else { //el que envia el mensaje es alquien más
+                        if (remitente.equals(username)) {
+                            sender = solicitante + " says privately\n to you : ";
+                        } else{
+                            sender = solicitante + " says privately\n to " + remitente + " : ";
+                        }
+                    }
+                    if("message".equals(tipo) || "emoji".equals(tipo)){
+                        // Actualiza la interfaz gráfica con el mensaje recibido
+                        SwingUtilities.invokeLater(() -> {
+                            // Actualiza el área de chat en el formulario
+                            formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
                         });
                     }
                 }
-            } catch (IOException ignored) {
-            }
+            } catch (IOException ignored) { }
         }
     }
 
@@ -356,14 +361,16 @@ public class ChatClient extends Thread{
     //Método para solicitar la lista de usuarios activos
     private void solicitarUsuarios(String nombre){
         JSONObject mensaje = new JSONObject();
+        mensaje.put("public", "all");
         mensaje.put("tipo", "activos");
         mensaje.put("usr", Objects.requireNonNullElse(nombre, "null"));
         sendData(this.socket, group, mensaje.toString());
     }
 
-    // Método para enviar un mensaje de texto
-    public void sendMessage(String message, String type) {
+    // Método para enviar un mensaje GRUPAL
+    public void sendMessage(String message, String type) { //TYPOE = message, emoji, file, activos
         JSONObject json = new JSONObject();
+        json.put("public", "all");
         json.put("tipo", type);
         json.put("usr", username);
         json.put("content", message);
@@ -378,20 +385,12 @@ public class ChatClient extends Thread{
         System.out.println("Función de envío de archivos aún no implementada.");
     }
 
-    // Método para enviar un emoji
-    public void sendEmoji(String emoji) {
-        JSONObject json = new JSONObject();
-        json.put("tipo", "emoji");
-        json.put("usr", this.username);
-        json.put("content", emoji);
-        sendData(socket, group, json.toString());
-    }
-
     // Método para enviar un mensaje privado
-    public void sendPrivateMessage(String receptor, String privateMessage) {
+    public void sendPrivateMessage(String receptor, String privateMessage, String type) {
         JSONObject json = new JSONObject();
-        json.put("tipo", "private_message");
-        json.put("usr", this.username);
+        json.put("public", "private");
+        json.put("tipo", type);
+        json.put("usr", username);
         json.put("recipient", receptor);
         json.put("content", privateMessage);
 

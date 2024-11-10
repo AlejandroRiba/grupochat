@@ -21,6 +21,7 @@ public class NombreUsuarioDialog extends JDialog {
             }
         });
 
+
         JPanel panel = new JPanel();
         panel.add(new JLabel("Username:"));
         panel.add(nombreField);
@@ -28,7 +29,8 @@ public class NombreUsuarioDialog extends JDialog {
         add(panel);
 
         pack();
-        setLocationRelativeTo(parent);
+        setResizable(false);
+        setLocationRelativeTo(null);
     }
 
     public String getNombreUsuario() {

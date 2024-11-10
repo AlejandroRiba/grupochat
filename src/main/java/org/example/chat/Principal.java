@@ -30,11 +30,9 @@ public class Principal extends JFrame {
 
     private ChatClient cliente;
 
-    String mensaje_inicio = "", mensaje_medio = "", mensaje_final = "";
-    String mensaje_inicio1 = "";
-
-    private ArrayList<Usuario> usuarios = new ArrayList<>(); // Lista de objetos Usuario
-    String path,tmp_u="",tmp_m="";
+    String mensaje_inicio, mensaje_medio, mensaje_final;
+    String mensaje_inicio1;
+    String path;
 
     public Principal(ChatClient cliente){
         setContentPane(mainPanel);  // Usa el mainPanel creado en el .form
@@ -86,6 +84,7 @@ public class Principal extends JFrame {
                 "<table id=\"usuarios\">\n";
 
         mensaje_final="</table>";
+        mensaje_medio = "";
         this.repaint();
         this.cliente = cliente;
         //Metodo para enviar un mensaje de texto
@@ -182,7 +181,7 @@ public class Principal extends JFrame {
 
     private void insertarEmoji(String source) {
         System.out.println("Source: " + source);
-        cliente.sendEmoji(source);
+        cliente.sendMessage(source, "emoji");
     }
 
     public void enviarMensaje(){
@@ -196,38 +195,28 @@ public class Principal extends JFrame {
         }
     }
 
-    public void actualizarChat(String usuario, String mensaje){
-        if(!mensaje.isEmpty() && !usuario.isEmpty()){
-            mensaje_medio=  mensaje_medio + "  <tr>\n" +
-                    "    <td>"+usuario+"</td>\n" +
-                    "    <td>"+mensaje+"</td>\n" +
-                    "  </tr>";
-            editorChat.setText(mensaje_inicio+mensaje_medio+mensaje_final);
-            this.repaint();
+    public void actualizarChat(String usuario, String mensaje, String publico, String tipo){
+        String style;
+        String fila;
+        if("all".equals(publico)){
+            style = "#12067c";
+        }else{
+            style = "red";
         }
-    }
-
-    public void actualizarChatEmoji(String usuario, String contenido){
-        if(!contenido.isEmpty() && !usuario.isEmpty()){
+        if("emoji".equals(tipo)){
             // Ruta base de los emojis
-            URL emojiURL = getClass().getResource("/emojis/" + contenido);
+            URL emojiURL = getClass().getResource("/emojis/" + mensaje);
 
             // Construir el mensaje HTML para el emoji
             assert emojiURL != null;
-            mensaje_medio = mensaje_medio + "  <tr>\n" +
-                    "    <td>" + usuario + "</td>\n" +
-                    "    <td>" + "<img src=\"" + emojiURL + "\" width=\"50\" height=\"50\"></img>" + "</td>\n" +
-                    "  </tr>";
-            editorChat.setText(mensaje_inicio+mensaje_medio+mensaje_final);
-            this.repaint();
+            fila = "    <td>" + "<img src=\"" + emojiURL + "\" width=\"62\" height=\"62\"></img>" + "</td>\n";
+        }else{
+            fila ="    <td>"+mensaje+"</td>\n";
         }
-    }
-
-    public void actualizarPrivado(String usuario, String mensaje){
         if(!mensaje.isEmpty() && !usuario.isEmpty()){
             mensaje_medio=  mensaje_medio + "  <tr>\n" +
-                    "    <td style='color: red;'>"+usuario+"</td>\n" +
-                    "    <td>"+mensaje+"</td>\n" +
+                    "    <td  style='color: "+style+";'><b>"+usuario+"</b></td>\n" +
+                    fila +
                     "  </tr>";
             editorChat.setText(mensaje_inicio+mensaje_medio+mensaje_final);
             this.repaint();
@@ -241,23 +230,57 @@ public class Principal extends JFrame {
         // Establecer un BoxLayout para que los usuarios se apilen verticalmente
         usuariosPanel.setLayout(new BoxLayout(usuariosPanel, BoxLayout.Y_AXIS));
 
+        // Ajuste de alineación
+        usuariosPanel.setAlignmentY(Component.TOP_ALIGNMENT);
+
+        // Establecer un tamaño mínimo al panel de usuarios
+        usuariosPanel.add(Box.createVerticalStrut(6)); // Espacio vertical entre los paneles
+
         for (Usuario usuario : usuarios) {
             JPanel usuarioPanel = new JPanel();
             usuarioPanel.setLayout(new BoxLayout(usuarioPanel, BoxLayout.X_AXIS));  // Apilar elementos en fila dentro de cada panel de usuario
+            usuarioPanel.setOpaque(false); // Fondo transparente para el panel
+
+            // Crear un JLabel con un punto verde
+            JLabel puntoVerde = new JLabel();
+            puntoVerde.setOpaque(true);
+            puntoVerde.setBackground(Color.GREEN);
+            puntoVerde.setPreferredSize(new Dimension(10, 10)); // Tamaño del punto
+            puntoVerde.setMaximumSize(new Dimension(10, 10)); // Fijar el tamaño
 
             JLabel usuarioLabel = new JLabel(usuario.getNombre());
-            JButton mensajePrivadoBtn = new JButton("Private Message");
+            usuarioLabel.setPreferredSize(new Dimension(50, 20)); // Fijar el tamaño para el nombre
+            usuarioLabel.setMaximumSize(new Dimension(50, 20)); // Fijar el tamaño máximo
+            usuarioLabel.setBackground(new Color(246, 241, 215));
+            JButton mensajePrivadoBtn = getMensajePrivadoBtn(usuario);
 
-            // Agregar acción al botón de mensaje privado
-            mensajePrivadoBtn.addActionListener(e -> enviarMensajePrivado(usuario));
-
+            // Agregar los componentes al panel del usuario
+            usuarioPanel.add(puntoVerde); // Agrega el punto verde primero
+            usuarioPanel.add(Box.createHorizontalStrut(5)); // Espacio entre el punto y el nombre
             usuarioPanel.add(usuarioLabel);
             usuarioPanel.add(mensajePrivadoBtn);
             usuariosPanel.add(usuarioPanel);
+
+            // Agregar un espacio entre los paneles
+            usuariosPanel.add(Box.createVerticalStrut(6)); // Espacio vertical entre los paneles
         }
 
         usuariosPanel.revalidate();
         usuariosPanel.repaint();
+    }
+
+    private JButton getMensajePrivadoBtn(Usuario usuario) {
+        // Cargar el ícono desde la carpeta resources/img
+        ImageIcon icon = new ImageIcon(Objects.requireNonNull(getClass().getResource("/emojis/privado.png"))); // Ruta correcta según la estructura del proyecto
+        // Redimensionar el icono
+        icon = new ImageIcon(icon.getImage().getScaledInstance(25, 25, Image.SCALE_DEFAULT));
+        // Crear el JButton con el ícono (sin texto)
+        JButton mensajePrivadoBtn = new JButton(icon);
+        mensajePrivadoBtn.setPreferredSize(new Dimension(70, 32)); // Ajusta el tamaño para que se vea bien
+        mensajePrivadoBtn.setMaximumSize(new Dimension(70, 32)); // Fijar el tamaño máximo
+        // Agregar acción al botón de mensaje privado
+        mensajePrivadoBtn.addActionListener(e -> enviarMensajePrivado(usuario));
+        return mensajePrivadoBtn;
     }
 
     public void nombreUsuario(String nombre){
@@ -268,10 +291,23 @@ public class Principal extends JFrame {
     }
 
     private void enviarMensajePrivado(Usuario destinatario){
-        String mensaje = JOptionPane.showInputDialog(null,
-                "Escribe tu mensaje privado para " + destinatario.getNombre() + ":");
+        JFrame frame = new JFrame();
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        PrivadoDialog dialog = new PrivadoDialog(frame);
+        dialog.setVisible(true);
+
+        String mensaje = dialog.getMessage();
         if (mensaje != null && !mensaje.isEmpty()) {
-            cliente.sendPrivateMessage(destinatario.getNombre(),mensaje);
+            String tipo = dialog.getTipo();
+            System.out.println(tipo);
+            if("message".equals(tipo)){
+                cliente.sendPrivateMessage(destinatario.getNombre(),mensaje,"message");
+            } else if ("emoji".equals(tipo)) { //Tipo emoji
+                cliente.sendPrivateMessage(destinatario.getNombre(),mensaje,"emoji");
+            }else{ //Tipo file
+                System.out.println(mensaje);
+            }
+
         }
     }
 
