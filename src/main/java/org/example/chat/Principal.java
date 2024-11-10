@@ -4,18 +4,17 @@ import org.example.ChatClient;
 import org.example.clases.Usuario;
 
 import javax.swing.*;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
+import java.net.URL;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 public class Principal extends JFrame {
-
     private JPanel mainPanel;
     private JLabel txtmensaje;
     private JTextField fieldMessage;
@@ -44,7 +43,7 @@ public class Principal extends JFrame {
         setResizable(false);
         setLocationRelativeTo(null); // Centrar en la pantalla
         File f = new File("");
-        String ruta = f.getAbsolutePath();
+        String ruta = f.getAbsolutePath().replace("\\", "/");
         path=ruta;
         mensaje_inicio= "<head><base href=\"file:"+ruta+"\\\">"+
                 "<style>#usuarios {"+
@@ -95,71 +94,95 @@ public class Principal extends JFrame {
     }
 
     private void listarEmojis() {
-        // Crear el JPopupMenu para los emojis
-        JPopupMenu emojiMenu = new JPopupMenu();
+        // Crear el JPanel que contendrá los emojis
+        JPanel emojiPanel = new JPanel();
+        emojiPanel.setLayout(new GridLayout(0, 3, 5, 5)); // Para organizar en filas y columnas
 
         // Ruta de los recursos de los emojis
         String rutaEmojis = "/emojis/";
 
-        // Crear los iconos de los emojis desde los recursos
-        ImageIcon emoji1 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji1.gif")));
-        ImageIcon emoji2 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji2.gif")));
-        ImageIcon emoji3 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji3.gif")));
-        ImageIcon emoji4 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji4.gif")));
-        ImageIcon emoji5 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji5.gif")));
-        ImageIcon emoji6 = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + "emoji6.gif")));
+        // Crear un array de nombres de archivos de emojis (esto permite añadir más fácilmente)
+        String[] emojis = {"emoji1.gif", "emoji2.gif", "emoji3.gif", "emoji4.gif", "emoji5.gif", "emoji6.gif", "emoji7.gif", "emoji8.gif", "emoji9.gif", "emoji10.gif", "emoji11.gif", "emoji12.gif"};
 
-        // Limitar el tamaño de los emojis
         int ancho = 50; // Ancho deseado
         int alto = 53;  // Alto deseado
 
-        // Redimensionar los emojis para que no sean gigantes en el menú
-        emoji1 = new ImageIcon(emoji1.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
-        emoji2 = new ImageIcon(emoji2.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
-        emoji3 = new ImageIcon(emoji3.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
-        emoji4 = new ImageIcon(emoji4.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
-        emoji5 = new ImageIcon(emoji5.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
-        emoji6 = new ImageIcon(emoji6.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
+        // Crear el JDialog para mostrar el panel de emojis
+        final JDialog emojiDialog = new JDialog();
+        emojiDialog.setTitle("Emojis");
 
-        // Crear un JPanel con GridLayout para organizar los emojis
-        JPanel emojiPanel = new JPanel(new GridLayout(0, 3, 2, 2)); // 0 filas, 3 columnas, 5px de espacio entre cada elemento
+        // Agregar los emojis al panel
+        for (String emoji : emojis) {
+            try {
+                ImageIcon icon = new ImageIcon(Objects.requireNonNull(getClass().getResource(rutaEmojis + emoji)));
+                // Redimensionar el icono
+                icon = new ImageIcon(icon.getImage().getScaledInstance(ancho, alto, Image.SCALE_DEFAULT));
+                JLabel emojiLabel = new JLabel(icon);
+                emojiLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        // Crear los JMenuItems sin texto, solo con el icono
-        JMenuItem emojiItem1 = new JMenuItem("", emoji1);
-        JMenuItem emojiItem2 = new JMenuItem("", emoji2);
-        JMenuItem emojiItem3 = new JMenuItem("", emoji3);
-        JMenuItem emojiItem4 = new JMenuItem("", emoji4);
-        JMenuItem emojiItem5 = new JMenuItem("", emoji5);
-        JMenuItem emojiItem6 = new JMenuItem("", emoji6);
+                // Cambiar el borde y el fondo al pasar el mouse sobre el JLabel
+                emojiLabel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseEntered(MouseEvent e) {
+                        emojiLabel.setBorder(BorderFactory.createLineBorder(Color.BLUE, 1)); // Cambia el borde
+                        emojiLabel.setOpaque(true);
+                        emojiLabel.setBackground(new Color(220, 220, 220)); // Cambia el fondo
+                    }
 
-        // Acción cuando se selecciona un emoji
-        emojiItem1.addActionListener(e -> insertarEmoji("<img src=\"emoji1.gif\" width=\"30\" height=\"30\">"));
-        emojiItem2.addActionListener(e -> insertarEmoji("<img src=\"emoji2.gif\" width=\"30\" height=\"30\">"));
-        emojiItem3.addActionListener(e -> insertarEmoji("<img src=\"emoji3.gif\" width=\"30\" height=\"30\">"));
-        emojiItem4.addActionListener(e -> insertarEmoji("<img src=\"emoji4.gif\" width=\"30\" height=\"30\">"));
-        emojiItem5.addActionListener(e -> insertarEmoji("<img src=\"emoji5.gif\" width=\"30\" height=\"30\">"));
-        emojiItem6.addActionListener(e -> insertarEmoji("<img src=\"emoji6.gif\" width=\"30\" height=\"30\">"));
+                    @Override
+                    public void mouseExited(MouseEvent e) {
+                        emojiLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5)); // Restaura el borde
+                        emojiLabel.setBackground(null); // Quita el fondo
+                    }
 
-        // Añadir los JMenuItems al JPanel
-        emojiPanel.add(emojiItem1);
-        emojiPanel.add(emojiItem2);
-        emojiPanel.add(emojiItem3);
-        emojiPanel.add(emojiItem4);
-        emojiPanel.add(emojiItem5);
-        emojiPanel.add(emojiItem6);
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        insertarEmoji(emoji);
+                        emojiDialog.dispose(); // Cierra la ventana de emojis
+                    }
+                });
 
-        // Envolver el JPanel en un JScrollPane para hacerlo desplazable
-        JScrollPane scrollPane = new JScrollPane(emojiPanel);
-        scrollPane.setPreferredSize(new Dimension(200, 200)); // Ajustar el tamaño del JScrollPane
-        // Agregar el JScrollPane al JPopupMenu
-        emojiMenu.add(scrollPane);
+                emojiPanel.add(emojiLabel); // Añadir cada emoji al panel
+            } catch (NullPointerException ex) {
+                System.err.println("Emoji no encontrado: " + emoji);
+            }
+        }
 
-        // Mostrar el menú de emojis cuando se haga clic en el botón
-        emojiMenu.show(emojisButton, 0, emojisButton.getHeight());
+        // Crear el JScrollPane y establecer dimensiones
+        JScrollPane emojiScrollPane = new JScrollPane(emojiPanel);
+        emojiScrollPane.setPreferredSize(new Dimension(200, 200)); // Tamaño fijo para permitir scroll
+        emojiScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        emojiScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+
+        // Visbile el dialog
+        emojiDialog.getContentPane().add(emojiScrollPane);
+        emojiDialog.pack();
+        emojiDialog.setLocationRelativeTo(emojisButton); // Posición relativa al botón
+        emojiDialog.setVisible(true);
+
+        // Agregar un MouseListener al JFrame o contenedor principal para cerrar el JDialog si se hace clic fuera de él
+        emojiDialog.addWindowFocusListener(new WindowAdapter() {
+            @Override
+            public void windowLostFocus(WindowEvent e) {
+                emojiDialog.dispose(); // Cierra el diálogo si pierde el foco
+            }
+        });
+
+        // Detectar clic fuera del JDialog
+        emojiDialog.getRootPane().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (!emojiDialog.isAncestorOf(e.getComponent())) {
+                    emojiDialog.dispose(); // Cerrar el JDialog si el clic es fuera de él
+                }
+            }
+        });
+
     }
 
     private void insertarEmoji(String source) {
         System.out.println("Source: " + source);
+        cliente.sendEmoji(source);
     }
 
     public void enviarMensaje(){
@@ -178,6 +201,22 @@ public class Principal extends JFrame {
             mensaje_medio=  mensaje_medio + "  <tr>\n" +
                     "    <td>"+usuario+"</td>\n" +
                     "    <td>"+mensaje+"</td>\n" +
+                    "  </tr>";
+            editorChat.setText(mensaje_inicio+mensaje_medio+mensaje_final);
+            this.repaint();
+        }
+    }
+
+    public void actualizarChatEmoji(String usuario, String contenido){
+        if(!contenido.isEmpty() && !usuario.isEmpty()){
+            // Ruta base de los emojis
+            URL emojiURL = getClass().getResource("/emojis/" + contenido);
+
+            // Construir el mensaje HTML para el emoji
+            assert emojiURL != null;
+            mensaje_medio = mensaje_medio + "  <tr>\n" +
+                    "    <td>" + usuario + "</td>\n" +
+                    "    <td>" + "<img src=\"" + emojiURL + "\" width=\"50\" height=\"50\"></img>" + "</td>\n" +
                     "  </tr>";
             editorChat.setText(mensaje_inicio+mensaje_medio+mensaje_final);
             this.repaint();

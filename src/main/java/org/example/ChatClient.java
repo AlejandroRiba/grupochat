@@ -302,7 +302,20 @@ public class ChatClient extends Thread{
                         }
                         formulario.actualizarChat(sender, contenido); // Llama al método para agregar el mensaje en el área de chat
                     });
-                } else if ("private_message".equals(tipo)) {
+                } else if ("emoji".equals(tipo)) {
+                    // Extraer el contenido
+                    String contenido = jsonMensaje.getString("content");
+                    System.out.println("Mensaje recibido: " + contenido);
+                    // Actualiza la interfaz gráfica con el mensaje recibido
+                    SwingUtilities.invokeLater(() -> {
+                        // Actualiza el área de chat en el formulario
+                        String sender = solicitante + " says: ";
+                        if(solicitante.equals(username)){
+                            sender = "You say:";
+                        }
+                        formulario.actualizarChatEmoji(sender, contenido); // Llama al método para agregar el mensaje en el área de chat
+                    });
+                }else if ("private_message".equals(tipo)) {
                     // Extraer el contenido
                     String remitente = jsonMensaje.getString("recipient");
                     if(remitente.equals(username) || solicitante.equals(username)){//si el mensaje es para el user actual o para el que lo mando
@@ -366,14 +379,11 @@ public class ChatClient extends Thread{
     }
 
     // Método para enviar un emoji
-    private static void sendEmoji(MulticastSocket socket, InetAddress group, Scanner scanner, String username) {
-        System.out.print("Escribe el emoji: ");
-        String emoji = scanner.nextLine();
-
+    public void sendEmoji(String emoji) {
         JSONObject json = new JSONObject();
         json.put("tipo", "emoji");
+        json.put("usr", this.username);
         json.put("content", emoji);
-
         sendData(socket, group, json.toString());
     }
 
