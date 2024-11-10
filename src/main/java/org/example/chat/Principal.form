@@ -22,7 +22,7 @@
           <component id="bb16c" class="javax.swing.JEditorPane" binding="editorChat">
             <constraints/>
             <properties>
-              <background color="-5328717"/>
+              <background color="-787256"/>
               <contentType value="text/html"/>
               <editable value="false"/>
               <enabled value="true"/>
@@ -44,19 +44,14 @@
         </properties>
         <border type="none"/>
         <children>
-          <component id="66eaf" class="javax.swing.JEditorPane" binding="editorUsers">
+          <grid id="f65c7" binding="usuariosPanel" layout-manager="GridBagLayout">
             <constraints/>
             <properties>
-              <background color="-5328717"/>
-              <contentType value="text/html"/>
-              <editable value="false"/>
-              <enabled value="true"/>
-              <maximumSize width="-1" height="-1"/>
-              <minimumSize width="-1" height="-1"/>
-              <preferredSize width="105" height="240"/>
-              <text value="&lt;html&gt;&#13;&#10;  &lt;head&gt;&#13;&#10;&#13;&#10;  &lt;/head&gt;&#13;&#10;  &lt;body&gt;&#13;&#10;    &lt;p style=&quot;margin-top: 0&quot;&gt;&#13;&#10;      &#13;&#10;    &lt;/p&gt;&#13;&#10;  &lt;/body&gt;&#13;&#10;&lt;/html&gt;&#13;&#10;"/>
+              <background color="-787256"/>
             </properties>
-          </component>
+            <border type="none"/>
+            <children/>
+          </grid>
         </children>
       </scrollpane>
       <component id="4e91b" class="javax.swing.JTextField" binding="fieldMessage">
@@ -162,8 +157,15 @@
           <grid row="1" column="7" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="0" use-parent-layout="false"/>
         </constraints>
         <properties>
-          <labelFor value="66eaf"/>
           <text value="Online users"/>
+        </properties>
+      </component>
+      <component id="b773c" class="javax.swing.JLabel" binding="usuario">
+        <constraints>
+          <grid row="5" column="7" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="0" use-parent-layout="false"/>
+        </constraints>
+        <properties>
+          <text value="Nombre"/>
         </properties>
       </component>
     </children>
