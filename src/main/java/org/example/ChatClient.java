@@ -331,7 +331,6 @@ public class ChatClient extends Thread{
                             SwingUtilities.invokeLater(() -> {
                                 // Actualiza el área de chat en el formulario
                                 formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
-                                formulario.addItemToList(contenido);
                             });
                         } else if("file".equals(tipo)){
                             // Verificar si el archivo ya está en proceso
@@ -355,29 +354,6 @@ public class ChatClient extends Thread{
                             System.out.println("Almacena el contenido en : " + (packetNumber-1));
                             fragmentos.set(packetNumber-1, contenido);
 
-                            // Verificar si todos los fragmentos han sido recibidos
-                            if (fragmentos.stream().allMatch(Objects::nonNull) && fragmentos.size() == totalPackets) {
-                                // Reconstruir el archivo completo
-                                try {
-                                    for (String fragment : fragmentos) {
-                                        if (fragment != null && isValidBase64(fragment)) {
-                                            byte[] data = Base64.getDecoder().decode(fragment);
-                                        }
-                                    }
-                                    System.out.println("Decodificado con exito.");
-                                } catch (IllegalArgumentException e) {
-                                    System.err.println("Error al decodificar el archivo: " + e.getMessage());
-                                }
-                                // Ruta a la carpeta de descargas del usuario
-                                //Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads", "received_" + filename);
-
-                                //Files.write(downloadsPath, fileBytes);  // Guarda el archivo
-                                //System.out.println("Archivo completo recibido y guardado: " + filename);
-
-                                // Remover de los mapas
-                                archivosEnProceso.remove(filename);
-                                paquetesTotalesPorArchivo.remove(filename);
-                            }
                         }
                     } else if ("private".equals(publico) && (remitente.equals(username) || solicitante.equals(username))) { //si el mensaje es para el user actual o para el que lo mando
                         if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
@@ -411,6 +387,41 @@ public class ChatClient extends Thread{
 
     public boolean isValidBase64(String base64) {
         return base64.matches("^[A-Za-z0-9+/=]+$");
+    }
+
+    public void downloadFile(String filename){
+        //Extraemos los fragmentos del archivo
+        List<String> fragmentos = archivosEnProceso.get(filename);
+        //Extraemos el total de paquetes
+        Integer totalPackets = paquetesTotalesPorArchivo.get(filename);
+        //Extraemos el usuario que lo mando
+        String fileOwner = archivosUsuario.get(filename);
+        // Verificar si todos los fragmentos han sido recibidos
+        if (fragmentos.stream().allMatch(Objects::nonNull) && fragmentos.size() == totalPackets) {
+            // Reconstruir el archivo completo
+            try {
+                for (String fragment : fragmentos) {
+                    if (fragment != null && isValidBase64(fragment)) {
+                        byte[] data = Base64.getDecoder().decode(fragment);
+                    }
+                }
+                System.out.println("Decodificado con exito. Archivo enviado por: " + fileOwner);
+            } catch (IllegalArgumentException e) {
+                System.err.println("Error al decodificar el archivo: " + e.getMessage());
+            }
+            // Ruta a la carpeta de descargas del usuario
+            //Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads", "received_" + filename);
+
+            //Files.write(downloadsPath, fileBytes);  // Guarda el archivo
+            //System.out.println("Archivo completo recibido y guardado: " + filename);
+
+            /*// Remover de los mapas
+            archivosEnProceso.remove(filename);
+            paquetesTotalesPorArchivo.remove(filename);*/
+        }else{
+            //Solicitar la retransmisión del paquete faltante
+            sendMessage("message", "retransmisión");
+        }
     }
 
     private void eliminarUsuario(JSONObject usuarioJson) {
@@ -477,6 +488,7 @@ public class ChatClient extends Thread{
                 sendData(socket,group,json.toString());
                 packetNumber++;
             }
+            sendMessage(file.getName(), "message"); //Se manda un mensaje cuando se termina de mandar el archivo
         }
     }
 

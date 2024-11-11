@@ -109,9 +109,8 @@ public class Principal extends JFrame {
                     "¿Deseas descargar el archivo " + archivos.getSelectedItem() + "?",
                     "Confirmación de descarga", JOptionPane.YES_NO_OPTION);
 
-            if (respuesta == JOptionPane.YES_OPTION) {
-                // Aquí puedes agregar el código para manejar la descarga
-                System.out.println("Descargando " + archivos.getSelectedItem());
+            if (respuesta == JOptionPane.YES_OPTION) {//función de descarga
+                cliente.downloadFile(Objects.requireNonNull(archivos.getSelectedItem()).toString());
             }
         }
     }
