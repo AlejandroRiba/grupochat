@@ -3,15 +3,21 @@ package org.example;
 import org.example.chat.NombreUsuarioDialog;
 import org.example.chat.Principal;
 import org.example.clases.Usuario;
+import org.json.JSONException;
 import org.json.JSONObject;
 import  org.json.JSONArray;
 
 import javax.swing.*;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.Objects;
-import java.util.Scanner;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatClient extends Thread{
 
@@ -19,7 +25,7 @@ public class ChatClient extends Thread{
     private static final int PORT = 9331;
     private static final String ADDR = "230.1.1.1"; //IPV4
     //"ff3e:40:2001::1" //IPV6
-    public static final int DGRAM_BUF_LEN = 2048;
+    public static final int DGRAM_BUF_LEN = 4096;
 
     // Lista de usuarios conectados en este cliente
     private ArrayList<Usuario> usuarios = new ArrayList<>();
@@ -28,6 +34,12 @@ public class ChatClient extends Thread{
     private Usuario usuario_actual;
     private MulticastSocket socket;
     private InetAddress group;
+
+    // Mapa para almacenar fragmentos de archivos en proceso de recepción
+    private final Map<String, List<String>> archivosEnProceso = new ConcurrentHashMap<>(); //Archivos y sus fragmentos
+    private final Map<String, Integer> paquetesTotalesPorArchivo = new ConcurrentHashMap<>();
+
+    private final Map<String, String> archivosUsuario = new ConcurrentHashMap<>(); //Archivos y quien lo envia
 
     public ChatClient(String username, Principal formulario) throws IOException {
         this.username = username;
@@ -268,78 +280,137 @@ public class ChatClient extends Thread{
 
     // Método para recibir mensajes y mostrarlos en el chat
     private void receiveMessages(MulticastSocket socket) throws IOException {
-        byte[] buffer = new byte[DGRAM_BUF_LEN];
+        byte[] buffer = new byte[65507];  // Máximo tamaño de paquete UDP
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 socket.receive(packet);
 
                 String mensajeRecibido = new String(packet.getData(), 0, packet.getLength()).trim();
-                JSONObject jsonMensaje = new JSONObject(mensajeRecibido);
+                try{
+                    JSONObject jsonMensaje = new JSONObject(mensajeRecibido);
 
-                String tipo = jsonMensaje.optString("tipo", ""); // tipo de mensaje
-                String publico = jsonMensaje.optString("public", ""); // para quien va dirigido
-                String solicitante = jsonMensaje.optString("usr", ""); // quien lo manda
-                String contenido = jsonMensaje.optString("content", ""); // Extraer el contenido
-                String remitente = jsonMensaje.optString("recipient", ""); // el remitente si existe
-                String sender; //Para la interfaz gráfica
-                if("all".equals(publico)){
-                     if(solicitante.equals(username)){
-                        sender = "You say: ";
-                     } else {
-                        sender = solicitante + " says: ";
-                     }
-                     System.out.println("Mensaje recibido: " + jsonMensaje);
-                     if ("activos".equals(tipo) && username != null) { //es un solicitante diferente
-                         this.enviarListaUsuarios();
-                     } else if("inicio".equals(tipo)){
-                        // Extraer el usuario del mensaje para agregar a la lista
-                        JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
-                        agregarUsuario(usuarioJson);
-                        SwingUtilities.invokeLater(() -> {
-                            // Actualiza el área de chat en el formulario
-                            formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                            formulario.actualizarChat(solicitante, contenido, publico, "message");
-                        });
-                    } else if ("salida".equals(tipo) && !username.equals(solicitante)) { //es un solicitante diferente
-                        JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
-                        eliminarUsuario(usuarioJson);
-                        SwingUtilities.invokeLater(() -> {
-                            // Actualiza el área de chat en el formulario
-                            formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                            formulario.actualizarChat(solicitante, contenido, publico, "message");
-                        });
-                    } else if ("message".equals(tipo) || "emoji".equals(tipo)){
-                        // Actualiza la interfaz gráfica con el mensaje recibido
-                        SwingUtilities.invokeLater(() -> {
-                            // Actualiza el área de chat en el formulario
-                            formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
-                        });
-                    }
-                } else if ("private".equals(publico) && (remitente.equals(username) || solicitante.equals(username))) { //si el mensaje es para el user actual o para el que lo mando
-                    if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
-                        if (remitente.equals(username)) {  //el que recibe
-                            sender = "You say privately\n to you: ";
+                    String tipo = jsonMensaje.optString("tipo", ""); // tipo de mensaje
+                    String publico = jsonMensaje.optString("public", ""); // para quien va dirigido
+                    String solicitante = jsonMensaje.optString("usr", ""); // quien lo manda
+                    String contenido = jsonMensaje.optString("content", ""); // Extraer el contenido
+                    String remitente = jsonMensaje.optString("recipient", ""); // el remitente si existe
+                    String filename = jsonMensaje.optString("filename", ""); // nombre del archivo
+                    int packetNumber = jsonMensaje.optInt("packetNumber", 0);
+                    int totalPackets = jsonMensaje.optInt("totalPackets", 1);
+                    boolean isLastPacket = jsonMensaje.optBoolean("end", false);
+                    String sender; //Para la interfaz gráfica
+                    if("all".equals(publico)){
+                        if(solicitante.equals(username)){
+                            sender = "You say: ";
                         } else {
-                            sender = "You say privately\n to " + remitente + " : "; //el que recibe es alguien más
+                            sender = solicitante + " says: ";
                         }
-                    }else { //el que envia el mensaje es alquien más
-                        if (remitente.equals(username)) {
-                            sender = solicitante + " says privately\n to you : ";
-                        } else{
-                            sender = solicitante + " says privately\n to " + remitente + " : ";
+                        System.out.println("Mensaje recibido: " + jsonMensaje);
+                        if ("activos".equals(tipo) && username != null) { //es un solicitante diferente
+                            this.enviarListaUsuarios();
+                        } else if("inicio".equals(tipo)){
+                            // Extraer el usuario del mensaje para agregar a la lista
+                            JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
+                            agregarUsuario(usuarioJson);
+                            SwingUtilities.invokeLater(() -> {
+                                // Actualiza el área de chat en el formulario
+                                formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
+                                formulario.actualizarChat(solicitante, contenido, publico, "message");
+                            });
+                        } else if ("salida".equals(tipo) && !username.equals(solicitante)) { //es un solicitante diferente
+                            JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
+                            eliminarUsuario(usuarioJson);
+                            SwingUtilities.invokeLater(() -> {
+                                // Actualiza el área de chat en el formulario
+                                formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
+                                formulario.actualizarChat(solicitante, contenido, publico, "message");
+                            });
+                        } else if ("message".equals(tipo) || "emoji".equals(tipo)){
+                            // Actualiza la interfaz gráfica con el mensaje recibido
+                            SwingUtilities.invokeLater(() -> {
+                                // Actualiza el área de chat en el formulario
+                                formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
+                                formulario.addItemToList(contenido);
+                            });
+                        } else if("file".equals(tipo)){
+                            // Verificar si el archivo ya está en proceso
+                            if (!archivosEnProceso.containsKey(filename)) {
+                                // Si no existe, inicializa el archivo y los fragmentos
+                                archivosEnProceso.put(filename, new ArrayList<>());
+                                paquetesTotalesPorArchivo.put(filename, totalPackets);
+                                archivosUsuario.put(filename, solicitante);
+                                SwingUtilities.invokeLater(() -> {
+                                    formulario.addItemToList(filename);
+                                });
+                            }
+
+                            // Asegura que el tamaño de la lista es el esperado
+                            List<String> fragmentos = archivosEnProceso.get(filename);
+                            while (fragmentos.size() < packetNumber) {
+                                fragmentos.add(null);  // Añade espacios vacíos hasta alcanzar el índice deseado
+                            }
+
+                            // Almacena el fragmento recibido en la posición correspondiente
+                            System.out.println("Almacena el contenido en : " + (packetNumber-1));
+                            fragmentos.set(packetNumber-1, contenido);
+
+                            // Verificar si todos los fragmentos han sido recibidos
+                            if (fragmentos.stream().allMatch(Objects::nonNull) && fragmentos.size() == totalPackets) {
+                                // Reconstruir el archivo completo
+                                try {
+                                    for (String fragment : fragmentos) {
+                                        if (fragment != null && isValidBase64(fragment)) {
+                                            byte[] data = Base64.getDecoder().decode(fragment);
+                                        }
+                                    }
+                                    System.out.println("Decodificado con exito.");
+                                } catch (IllegalArgumentException e) {
+                                    System.err.println("Error al decodificar el archivo: " + e.getMessage());
+                                }
+                                // Ruta a la carpeta de descargas del usuario
+                                //Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads", "received_" + filename);
+
+                                //Files.write(downloadsPath, fileBytes);  // Guarda el archivo
+                                //System.out.println("Archivo completo recibido y guardado: " + filename);
+
+                                // Remover de los mapas
+                                archivosEnProceso.remove(filename);
+                                paquetesTotalesPorArchivo.remove(filename);
+                            }
+                        }
+                    } else if ("private".equals(publico) && (remitente.equals(username) || solicitante.equals(username))) { //si el mensaje es para el user actual o para el que lo mando
+                        if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
+                            if (remitente.equals(username)) {  //el que recibe
+                                sender = "You say privately\n to you: ";
+                            } else {
+                                sender = "You say privately\n to " + remitente + " : "; //el que recibe es alguien más
+                            }
+                        }else { //el que envia el mensaje es alquien más
+                            if (remitente.equals(username)) {
+                                sender = solicitante + " says privately\n to you : ";
+                            } else{
+                                sender = solicitante + " says privately\n to " + remitente + " : ";
+                            }
+                        }
+                        if("message".equals(tipo) || "emoji".equals(tipo)){
+                            // Actualiza la interfaz gráfica con el mensaje recibido
+                            SwingUtilities.invokeLater(() -> {
+                                // Actualiza el área de chat en el formulario
+                                formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
+                            });
                         }
                     }
-                    if("message".equals(tipo) || "emoji".equals(tipo)){
-                        // Actualiza la interfaz gráfica con el mensaje recibido
-                        SwingUtilities.invokeLater(() -> {
-                            // Actualiza el área de chat en el formulario
-                            formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
-                        });
-                    }
+                }catch (JSONException e) {
+                    // Si el mensaje no es un JSON válido, lo ignoramos y continuamos
+                    System.out.println("Error en el JSON recibido: " + mensajeRecibido);
                 }
             } catch (IOException ignored) { }
         }
+    }
+
+    public boolean isValidBase64(String base64) {
+        return base64.matches("^[A-Za-z0-9+/=]+$");
     }
 
     private void eliminarUsuario(JSONObject usuarioJson) {
@@ -378,11 +449,35 @@ public class ChatClient extends Thread{
     }
 
     // Método para enviar un archivo
-    private static void sendFile(MulticastSocket socket, InetAddress group, Scanner scanner, String username) {
-        System.out.print("Ruta del archivo: ");
-        String filePath = scanner.nextLine();
+    public void sendFile(File file) throws IOException {
         // Aquí puedes implementar la lógica de envío de archivos en paquetes (ver tu implementación anterior)
         System.out.println("Función de envío de archivos aún no implementada.");
+        // Leer el archivo y dividirlo en paquetes
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[DGRAM_BUF_LEN];
+            int packetNumber = 1;
+            int bytesRead;
+            int totalPackets = (int) Math.ceil(file.length() / (double) DGRAM_BUF_LEN);
+
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                JSONObject json = new JSONObject();
+                json.put("public", "all");
+                json.put("tipo", "file");
+                json.put("usr", username);
+                byte[] dataToSend = Arrays.copyOfRange(buffer, 0, bytesRead); // Crea un subarray con solo los datos leídos
+                String encodedContent = Base64.getEncoder().encodeToString(dataToSend);
+                json.put("filename",file.getName());
+                json.put("packetNumber", packetNumber);
+                json.put("totalPackets", totalPackets);
+                json.put("content", encodedContent);
+
+                // Indicador de fin
+                json.put("end", packetNumber == totalPackets);  // Solo el último paquete tendrá "end": true
+
+                sendData(socket,group,json.toString());
+                packetNumber++;
+            }
+        }
     }
 
     // Método para enviar un mensaje privado
@@ -400,11 +495,19 @@ public class ChatClient extends Thread{
     // Método auxiliar para enviar datos al grupo multicast
     private static void sendData(MulticastSocket socket, InetAddress group, String data) {
         try {
-            byte[] buffer = data.getBytes();
+            byte[] buffer = data.getBytes(StandardCharsets.UTF_8);  // Especifica UTF-8 para la conversión a bytes
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length, group, PORT);
-            System.out.println("Mensaje enviado: " + data); //Imprime el json enviado.
+
+            // Verificar que el tamaño del paquete no exceda el máximo permitido (65507 bytes)
+            if (buffer.length > 65507) {
+                System.err.println("El mensaje es demasiado grande para enviarse en un solo paquete.");
+                return; // O podrías implementar lógica de fragmentación adicional
+            }
+            System.out.println("Tamaño de buffer : " + buffer.length);
+            System.out.println("Mensaje enviado: " + data); // Imprime el JSON enviado.
             socket.send(packet);
         } catch (IOException e) {
+            System.err.println("Error al enviar el paquete: " + e.getMessage());
             e.printStackTrace();
         }
     }

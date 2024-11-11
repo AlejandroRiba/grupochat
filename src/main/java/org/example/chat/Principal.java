@@ -4,11 +4,10 @@ import org.example.ChatClient;
 import org.example.clases.Usuario;
 
 import javax.swing.*;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
@@ -27,16 +26,19 @@ public class Principal extends JFrame {
     private JLabel txtusers;
     private JLabel usuario;
     private JPanel usuariosPanel;
+    private JLabel labelFiles;
 
+    private JComboBox<String> archivos;
     private ChatClient cliente;
 
     String mensaje_inicio, mensaje_medio, mensaje_final;
     String mensaje_inicio1;
     String path;
 
+
     public Principal(ChatClient cliente){
         setContentPane(mainPanel);  // Usa el mainPanel creado en el .form
-        setTitle("Interfaz de Chat");
+        setTitle("Chat");
         pack();       // Tamaño de la ventana
         setResizable(false);
         setLocationRelativeTo(null); // Centrar en la pantalla
@@ -87,9 +89,31 @@ public class Principal extends JFrame {
         mensaje_medio = "";
         this.repaint();
         this.cliente = cliente;
+        // Agregar una opción predeterminada que no sea seleccionable
+        archivos.addItem("Select a file...");
+        // Hacer que la primera opción sea solo un "placeholder"
+        archivos.setSelectedIndex(0); // Seleccionar por defecto el primer ítem (placeholder)
         //Metodo para enviar un mensaje de texto
         sendButton.addActionListener(e -> enviarMensaje());
         emojisButton.addActionListener(e -> listarEmojis());
+        fileButton.addActionListener(e -> selectAndSendFile());
+        // Crear un MouseListener para detectar clic derecho
+        archivos.addActionListener(e -> mostrarMenuEmergente());
+    }
+
+    // Método para mostrar el menú emergente con la opción de descargar
+    private void mostrarMenuEmergente() {
+        if(archivos.getSelectedIndex() != 0){
+            // Mostrar un JOptionPane de confirmación
+            int respuesta = JOptionPane.showConfirmDialog(null,
+                    "¿Deseas descargar el archivo " + archivos.getSelectedItem() + "?",
+                    "Confirmación de descarga", JOptionPane.YES_NO_OPTION);
+
+            if (respuesta == JOptionPane.YES_OPTION) {
+                // Aquí puedes agregar el código para manejar la descarga
+                System.out.println("Descargando " + archivos.getSelectedItem());
+            }
+        }
     }
 
     private void listarEmojis() {
@@ -284,7 +308,7 @@ public class Principal extends JFrame {
     }
 
     public void nombreUsuario(String nombre){
-        usuario.setText(nombre);
+        usuario.setText("Session: " + nombre);
     }
     public void setCliente(ChatClient cliente){
         this.cliente = cliente;
@@ -309,6 +333,26 @@ public class Principal extends JFrame {
             }
 
         }
+    }
+
+    private void selectAndSendFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        int result = fileChooser.showOpenDialog(this);
+
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+            try {
+                cliente.sendFile(selectedFile);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Error al enviar el archivo");
+            }
+        }
+    }
+
+    // Método para agregar un item a la lista
+    public void addItemToList(String item) {
+        archivos.addItem(item);
     }
 
 }
