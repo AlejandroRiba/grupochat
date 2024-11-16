@@ -106,13 +106,23 @@ public class Principal extends JFrame {
         if(archivos.getSelectedIndex() != 0){
             // Mostrar un JOptionPane de confirmación
             int respuesta = JOptionPane.showConfirmDialog(null,
-                    "¿Deseas descargar el archivo " + archivos.getSelectedItem() + "?",
-                    "Confirmación de descarga", JOptionPane.YES_NO_OPTION);
+                    "Do you want to download the file " + archivos.getSelectedItem() + "?",
+                    "Download confirmation.", JOptionPane.YES_NO_OPTION);
 
             if (respuesta == JOptionPane.YES_OPTION) {//función de descarga
                 cliente.downloadFile(Objects.requireNonNull(archivos.getSelectedItem()).toString());
             }
         }
+    }
+
+    public void mensajeConfirmacion(String mensaje){
+        //Muestra el dialogo
+        JOptionPane.showMessageDialog(
+                this,                // Centrar en el formulario actual
+                mensaje,
+                "Success",
+                JOptionPane.WARNING_MESSAGE
+        );
     }
 
     private void listarEmojis() {
@@ -221,10 +231,12 @@ public class Principal extends JFrame {
     public void actualizarChat(String usuario, String mensaje, String publico, String tipo){
         String style;
         String fila;
-        if("all".equals(publico)){
+        if("salida".equals(tipo) || "inicio".equals(tipo)){
+            style = "#930766";
+        }else if("all".equals(publico)){
             style = "#12067c";
         }else{
-            style = "red";
+            style = "#07931e";
         }
         if("emoji".equals(tipo)){
             // Ruta base de los emojis

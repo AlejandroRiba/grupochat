@@ -27,6 +27,11 @@ public class ChatClient extends Thread{
     //"ff3e:40:2001::1" //IPV6
     public static final int DGRAM_BUF_LEN = 4096;
 
+    private static final int TAMANO_VENTANA = 3;
+
+    private static final int TIMEOUT = 3000;
+
+
     // Lista de usuarios conectados en este cliente
     private ArrayList<Usuario> usuarios = new ArrayList<>();
     private String username;
@@ -36,10 +41,12 @@ public class ChatClient extends Thread{
     private InetAddress group;
 
     // Mapa para almacenar fragmentos de archivos en proceso de recepción
-    private final Map<String, List<String>> archivosEnProceso = new ConcurrentHashMap<>(); //Archivos y sus fragmentos
+    private final Map<String, Map<Integer, Boolean>> userAcks = new ConcurrentHashMap<>();
     private final Map<String, Integer> paquetesTotalesPorArchivo = new ConcurrentHashMap<>();
 
     private final Map<String, String> archivosUsuario = new ConcurrentHashMap<>(); //Archivos y quien lo envia
+
+    private FragmentHandler handler;
 
     public ChatClient(String username, Principal formulario) throws IOException {
         this.username = username;
@@ -48,7 +55,7 @@ public class ChatClient extends Thread{
         this.group = InetAddress.getByName(ADDR);
         SocketAddress mcastAddr = new InetSocketAddress(group, PORT);
         // Especifica la interfaz
-        NetworkInterface netIf = NetworkInterface.getByName("wlan3");
+        NetworkInterface netIf = NetworkInterface.getByName("wlan3"); //eth1wlan3"
         socket.joinGroup(mcastAddr, netIf);
     }
 
@@ -142,6 +149,7 @@ public class ChatClient extends Thread{
                         verificacion = false; //El usuario es valido, entonces entrará a la sesión
                         cliente.setUsername(nombreUsuario);
                         cliente.setUsuario(nombreUsuario, usr_direccionUnicast); //guardas en la variable Usuario
+                        cliente.handler = new FragmentHandler(nombreUsuario);
                     }
                 }
 
@@ -166,14 +174,6 @@ public class ChatClient extends Thread{
                             cliente.eliminarUsuarioDeSesion(cliente.usuario_actual);
                             // Cerrar la ventana de inmediato
                             formulario.dispose(); // Esto cierra la ventana
-
-                            // Pausa de 2 segundos antes de cerrar la aplicación
-                            try {
-                                Thread.sleep(1000);  // 1 segundo de espera
-                            } catch (InterruptedException e1) {
-                                e1.printStackTrace();
-                            }
-
                             // Luego de la pausa, termina la aplicación
                             System.exit(0);
                         }
@@ -182,6 +182,19 @@ public class ChatClient extends Thread{
                 });
                 //Formulario visible
                 formulario.setVisible(true);
+
+
+                // Agregar un shutdown hook
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    System.out.println("La aplicación se está cerrando. Realizando limpieza...");
+                    //Elimina carpeta temporal
+                    try {
+                        cliente.handler.eliminarCarpetaTemporal();
+                    } catch (IOException ex) {
+                        System.out.println("Error al eliminar la carpeta temp");
+                    }
+                }));
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -316,7 +329,7 @@ public class ChatClient extends Thread{
                             SwingUtilities.invokeLater(() -> {
                                 // Actualiza el área de chat en el formulario
                                 formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                                formulario.actualizarChat(solicitante, contenido, publico, "message");
+                                formulario.actualizarChat(solicitante, contenido, publico, "inicio");
                             });
                         } else if ("salida".equals(tipo) && !username.equals(solicitante)) { //es un solicitante diferente
                             JSONObject usuarioJson = jsonMensaje.getJSONObject("usuario_obj");
@@ -324,7 +337,7 @@ public class ChatClient extends Thread{
                             SwingUtilities.invokeLater(() -> {
                                 // Actualiza el área de chat en el formulario
                                 formulario.actualizarUsuarios(usuarios); // Llama al método para agregar el mensaje en el área de chat
-                                formulario.actualizarChat(solicitante, contenido, publico, "message");
+                                formulario.actualizarChat(solicitante, contenido, publico, "salida");
                             });
                         } else if ("message".equals(tipo) || "emoji".equals(tipo)){
                             // Actualiza la interfaz gráfica con el mensaje recibido
@@ -332,49 +345,50 @@ public class ChatClient extends Thread{
                                 // Actualiza el área de chat en el formulario
                                 formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
                             });
-                        } else if("file".equals(tipo)){
+                        } else if("file".equals(tipo) && username != null){
                             // Verificar si el archivo ya está en proceso
-                            if (!archivosEnProceso.containsKey(filename)) {
+                            if (!archivosUsuario.containsKey(filename)) {
                                 // Si no existe, inicializa el archivo y los fragmentos
-                                archivosEnProceso.put(filename, new ArrayList<>());
                                 paquetesTotalesPorArchivo.put(filename, totalPackets);
-                                archivosUsuario.put(filename, solicitante);
+                            }
+
+                            if(isLastPacket && !archivosUsuario.containsKey(filename)){ //hasta que recibe el último paqute de ese archivo manda a actualizar la lista
+                                archivosUsuario.put(filename, solicitante); //lo agregamos al arreglo que contiene el nombre del archivo y quien lo manda
                                 SwingUtilities.invokeLater(() -> {
                                     formulario.addItemToList(filename);
                                 });
                             }
 
-                            // Asegura que el tamaño de la lista es el esperado
-                            List<String> fragmentos = archivosEnProceso.get(filename);
-                            while (fragmentos.size() < packetNumber) {
-                                fragmentos.add(null);  // Añade espacios vacíos hasta alcanzar el índice deseado
-                            }
-
-                            // Almacena el fragmento recibido en la posición correspondiente
-                            System.out.println("Almacena el contenido en : " + (packetNumber-1));
-                            fragmentos.set(packetNumber-1, contenido);
-
+                            //decodificamos el contenido de base64 para byte
+                            byte[] data = Base64.getDecoder().decode(contenido);
+                            handler.guardarFragmento(filename, packetNumber, data);
+                            //Responde con un acuse a quien nos envia el archivo junyo con el numero de paquete
+                            sendAck(solicitante, packetNumber);
                         }
                     } else if ("private".equals(publico) && (remitente.equals(username) || solicitante.equals(username))) { //si el mensaje es para el user actual o para el que lo mando
-                        if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
-                            if (remitente.equals(username)) {  //el que recibe
-                                sender = "You say privately\n to you: ";
-                            } else {
-                                sender = "You say privately\n to " + remitente + " : "; //el que recibe es alguien más
+                        if("ack".equals(tipo) && remitente.equals(username)){ //Es un acuse el recibido y va dirigido al usuario actual
+                            handleAck(solicitante, packetNumber);
+                        }else{
+                            if(solicitante.equals(username)) { //el que envia el mensaje es el usuario mismo
+                                if (remitente.equals(username)) {  //el que recibe
+                                    sender = "You say privately\n to you: ";
+                                } else {
+                                    sender = "You say privately\n to " + remitente + " : "; //el que recibe es alguien más
+                                }
+                            }else { //el que envia el mensaje es alquien más
+                                if (remitente.equals(username)) {
+                                    sender = solicitante + " says privately\n to you : ";
+                                } else{
+                                    sender = solicitante + " says privately\n to " + remitente + " : ";
+                                }
                             }
-                        }else { //el que envia el mensaje es alquien más
-                            if (remitente.equals(username)) {
-                                sender = solicitante + " says privately\n to you : ";
-                            } else{
-                                sender = solicitante + " says privately\n to " + remitente + " : ";
+                            if("message".equals(tipo) || "emoji".equals(tipo)){
+                                // Actualiza la interfaz gráfica con el mensaje recibido
+                                SwingUtilities.invokeLater(() -> {
+                                    // Actualiza el área de chat en el formulario
+                                    formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
+                                });
                             }
-                        }
-                        if("message".equals(tipo) || "emoji".equals(tipo)){
-                            // Actualiza la interfaz gráfica con el mensaje recibido
-                            SwingUtilities.invokeLater(() -> {
-                                // Actualiza el área de chat en el formulario
-                                formulario.actualizarChat(sender, contenido, publico, tipo); // Llama al método para agregar el mensaje en el área de chat
-                            });
                         }
                     }
                 }catch (JSONException e) {
@@ -385,42 +399,17 @@ public class ChatClient extends Thread{
         }
     }
 
-    public boolean isValidBase64(String base64) {
-        return base64.matches("^[A-Za-z0-9+/=]+$");
-    }
-
     public void downloadFile(String filename){
-        //Extraemos los fragmentos del archivo
-        List<String> fragmentos = archivosEnProceso.get(filename);
         //Extraemos el total de paquetes
         Integer totalPackets = paquetesTotalesPorArchivo.get(filename);
-        //Extraemos el usuario que lo mando
-        String fileOwner = archivosUsuario.get(filename);
-        // Verificar si todos los fragmentos han sido recibidos
-        if (fragmentos.stream().allMatch(Objects::nonNull) && fragmentos.size() == totalPackets) {
-            // Reconstruir el archivo completo
-            try {
-                for (String fragment : fragmentos) {
-                    if (fragment != null && isValidBase64(fragment)) {
-                        byte[] data = Base64.getDecoder().decode(fragment);
-                    }
-                }
-                System.out.println("Decodificado con exito. Archivo enviado por: " + fileOwner);
-            } catch (IllegalArgumentException e) {
-                System.err.println("Error al decodificar el archivo: " + e.getMessage());
-            }
-            // Ruta a la carpeta de descargas del usuario
-            //Path downloadsPath = Paths.get(System.getProperty("user.home"), "Downloads", "received_" + filename);
-
-            //Files.write(downloadsPath, fileBytes);  // Guarda el archivo
-            //System.out.println("Archivo completo recibido y guardado: " + filename);
-
-            /*// Remover de los mapas
-            archivosEnProceso.remove(filename);
-            paquetesTotalesPorArchivo.remove(filename);*/
-        }else{
-            //Solicitar la retransmisión del paquete faltante
-            sendMessage("message", "retransmisión");
+        try {
+            handler.reconstruirArchivo(filename,totalPackets);
+            SwingUtilities.invokeLater(() -> {
+                // Muestra una ventana emergente confirmando la descarga
+                formulario.mensajeConfirmacion(filename + "File downloaded successfully.");
+            });
+        } catch (IOException e){
+            System.out.println("Error con la descarga del archivo");
         }
     }
 
@@ -461,34 +450,120 @@ public class ChatClient extends Thread{
 
     // Método para enviar un archivo
     public void sendFile(File file) throws IOException {
-        // Aquí puedes implementar la lógica de envío de archivos en paquetes (ver tu implementación anterior)
-        System.out.println("Función de envío de archivos aún no implementada.");
-        // Leer el archivo y dividirlo en paquetes
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[DGRAM_BUF_LEN];
-            int packetNumber = 1;
-            int bytesRead;
             int totalPackets = (int) Math.ceil(file.length() / (double) DGRAM_BUF_LEN);
+            int packetNumber = 1;
 
+            // Leer el archivo y dividirlo en paquetes
+            List<byte[]> packets = new ArrayList<>();
+            int bytesRead;
             while ((bytesRead = fis.read(buffer)) != -1) {
-                JSONObject json = new JSONObject();
-                json.put("public", "all");
-                json.put("tipo", "file");
-                json.put("usr", username);
-                byte[] dataToSend = Arrays.copyOfRange(buffer, 0, bytesRead); // Crea un subarray con solo los datos leídos
-                String encodedContent = Base64.getEncoder().encodeToString(dataToSend);
-                json.put("filename",file.getName());
-                json.put("packetNumber", packetNumber);
-                json.put("totalPackets", totalPackets);
-                json.put("content", encodedContent);
-
-                // Indicador de fin
-                json.put("end", packetNumber == totalPackets);  // Solo el último paquete tendrá "end": true
-
-                sendData(socket,group,json.toString());
-                packetNumber++;
+                packets.add(Arrays.copyOf(buffer, bytesRead));
             }
-            sendMessage(file.getName(), "message"); //Se manda un mensaje cuando se termina de mandar el archivo
+
+            // Inicializar estructura de ACKs
+            for (Usuario user : usuarios) { // Lista de usuarios activos
+                userAcks.put(user.getNombre(), new ConcurrentHashMap<>());
+                for (int i = 1; i <= totalPackets; i++) {
+                    userAcks.get(user.getNombre()).put(i, false); // Ningún paquete ha sido confirmado aún
+                }
+            }
+
+            // Control de la ventana deslizante
+            int windowStart = 0;
+            while (windowStart < totalPackets) {
+                // Enviar paquetes dentro de la ventana
+                for (int i = windowStart; i < Math.min(windowStart + TAMANO_VENTANA, totalPackets); i++) {
+                    for (Usuario user : usuarios) {
+                        if (!userAcks.get(user.getNombre()).getOrDefault(i + 1, false)) {
+                            sendPacket(packets.get(i), i + 1, totalPackets, file.getName(), user.getNombre());
+                        }
+                    }
+                }
+
+                // Esperar ACKs o retransmitir
+                long startTime = System.currentTimeMillis();
+                while (System.currentTimeMillis() - startTime < TIMEOUT) {
+                    if (allAcksReceived(windowStart + 1, windowStart + TAMANO_VENTANA)) {
+                        break;
+                    }
+                }
+
+                // Mover la ventana si se recibieron los ACKs esperados
+                while (allUsersAckedPacket(windowStart + 1)) {
+                    windowStart++;
+                }
+            }
+
+            sendMessage("New file! - " + file.getName(), "message"); //Hasta que se envia correctamente notifica del archivo nuevo
+            System.out.println("Archivo enviado correctamente a todos los usuarios.");
+        }
+    }
+
+
+    //Método que comprueba si todos los acuses fueron recibidos
+    private boolean allAcksReceived(int start, int end) {
+        for (Usuario user : usuarios) {
+            for (int i = start; i <= end; i++) {
+                if (!userAcks.get(user.getNombre()).getOrDefault(i, false)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    //Método que comprueba que todos los usuarios marcaron como recibido el paquete en especifico
+    private boolean allUsersAckedPacket(int packetNumber) {
+        for (Usuario user : usuarios) {
+            if (!userAcks.get(user.getNombre()).getOrDefault(packetNumber, false)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    //Método para enviar cada paquete de archivo
+    private void sendPacket(byte[] data, int packetNumber, int totalPackets, String filename, String recipient) throws IOException {
+        JSONObject json = new JSONObject();
+        // Agregar información sobre el destinatario
+        json.put("public", "all");
+        json.put("tipo", "file");
+        json.put("usr", username); // Remitente
+
+        // Datos del paquete
+        String encodedContent = Base64.getEncoder().encodeToString(data); // Codificar contenido
+        json.put("filename", filename);
+        json.put("packetNumber", packetNumber);
+        json.put("totalPackets", totalPackets);
+        json.put("content", encodedContent);
+
+        // Indicador de fin
+        json.put("end", packetNumber == totalPackets);
+
+        // Enviar el JSON como string
+        sendData(socket, group, json.toString());
+    }
+
+    //Método para enviar el acuse
+    private void sendAck(String destino, Integer packetNumber){
+        // Enviar ACK
+        JSONObject ack = new JSONObject();
+        ack.put("public", "private");
+        ack.put("tipo", "ack");
+        ack.put("usr", username);
+        ack.put("recipient", destino);
+        ack.put("packetNumber", packetNumber);
+
+        sendData(socket, group, ack.toString());
+    }
+
+    //Método para actualizar el acuse recibido
+    public void handleAck(String user, Integer packetNumber) {
+        // Marcar el paquete como recibido por este usuario
+        if (userAcks.containsKey(user)) {
+            userAcks.get(user).put(packetNumber, true);
         }
     }
 
@@ -515,9 +590,9 @@ public class ChatClient extends Thread{
                 System.err.println("El mensaje es demasiado grande para enviarse en un solo paquete.");
                 return; // O podrías implementar lógica de fragmentación adicional
             }
-            System.out.println("Tamaño de buffer : " + buffer.length);
             System.out.println("Mensaje enviado: " + data); // Imprime el JSON enviado.
-            socket.send(packet);
+            socket.send(packet); //Envia el paquete
+
         } catch (IOException e) {
             System.err.println("Error al enviar el paquete: " + e.getMessage());
             e.printStackTrace();

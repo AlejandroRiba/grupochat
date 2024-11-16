@@ -12,8 +12,6 @@ public class PrivadoDialog extends JDialog {
     private JTextField mensajeField;
     private JButton continuarButton;
     private JButton emojisButton;
-
-    private JButton fileButton;
     private String mensajePrivado;
     private String tipo;
 
@@ -21,7 +19,6 @@ public class PrivadoDialog extends JDialog {
         super(parent, "Private Message", true);
         mensajeField = new JTextField(20);
         continuarButton = new JButton("Send");
-        fileButton = new JButton("File");
         emojisButton = new JButton("Emojis");
 
         continuarButton.addActionListener(e -> {
@@ -34,13 +31,6 @@ public class PrivadoDialog extends JDialog {
             }
         });
 
-        // Acciones para los botones adicionales
-        fileButton.addActionListener(e -> {
-            tipo = "file";
-            mensajePrivado = "ruta de archivo";
-            dispose();
-        });
-
         emojisButton.addActionListener(e -> {
             tipo = "emoji";
             listarEmojis();
@@ -50,7 +40,6 @@ public class PrivadoDialog extends JDialog {
         panel.add(new JLabel("Message:"));
         panel.add(mensajeField);
         panel.add(continuarButton);
-        panel.add(fileButton);
         panel.add(emojisButton);
         add(panel);
 
